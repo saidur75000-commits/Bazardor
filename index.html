@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>আজকের বাজারদর</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f5f7f4; --surface:#ffffff; --ink:#1b2420; --muted:#5d6a63; --line:#dfe5e0;
+  --brand:#14532d; --brand-ink:#ffffff; --up:#b42318; --down:#067647; --warn-bg:#fff4d6; --warn-ink:#7a4b00;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1512; --surface:#18211c; --ink:#e8efea; --muted:#9db0a4; --line:#2a372f;
+    --brand:#0d3a20; --brand-ink:#f2f7f3; --up:#ff8a7a; --down:#59d39a; --warn-bg:#3a2e0d; --warn-ink:#ffd98a;
+    color-scheme: dark;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Hind Siliguri","Noto Sans Bengali",system-ui,sans-serif;font-size:17px;line-height:1.5}
+header{background:var(--brand);color:var(--brand-ink);padding:calc(env(safe-area-inset-top,0px) + 18px) 16px 18px}
+.wrap{max-width:640px;margin:0 auto}
+h1{margin:0;font-size:28px;font-weight:700;line-height:1.2}
+#date{margin:4px 0 0;font-size:16px;opacity:.9}
+main{padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 32px)}
+#warn{display:none;background:var(--warn-bg);color:var(--warn-ink);padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:15px}
+#q{width:100%;font:inherit;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+#q:focus,.chip:focus-visible{outline:3px solid var(--brand);outline-offset:1px}
+#chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0;scrollbar-width:none}
+.chip{flex:0 0 auto;font:inherit;font-size:16px;padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+.cat{margin:18px 0 4px;font-size:15px;font-weight:600;color:var(--muted)}
+ul{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 14px;border-top:1px solid var(--line)}
+li:first-child{border-top:0}
+.name{font-weight:600;font-size:18px}
+.unit{font-size:14px;color:var(--muted)}
+.right{text-align:right;white-space:nowrap}
+.price{font-weight:700;font-size:19px}
+.chg{font-size:14px}
+.up{color:var(--up)} .down{color:var(--down)} .same{color:var(--muted)}
+#msg{padding:28px 8px;text-align:center;color:var(--muted)}
+footer{margin-top:22px;font-size:14px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>আজকের বাজারদর</h1>
+  <p id="date">দাম লোড হচ্ছে…</p>
+</div></header>
+<main><div class="wrap">
+  <div id="warn">এই দামগুলো পরীক্ষামূলক, আসল বাজারদর নয়।</div>
+  <input id="q" type="search" placeholder="পণ্য খুঁজুন, যেমন: চাল" aria-label="পণ্য খুঁজুন">
+  <div id="chips" role="group" aria-label="ক্যাটাগরি"></div>
+  <div id="list"></div>
+  <div id="msg" hidden></div>
+  <footer id="foot"></footer>
+</div></main>
+<script>
+var SUPABASE_URL = "https://keprcjieatoauvydqjlp.supabase.co";
+var SUPABASE_KEY = "sb_publishable_rOUVae_fhv2lp0JHUr3D8g_mRMyo4PS";
+
+var rows = [], prev = {}, cat = "সব";
+var bn = function(n){ return Number(n).toLocaleString("bn-BD"); };
+var $ = function(id){ return document.getElementById(id); };
+
+function showMsg(t){ var m=$("msg"); m.textContent=t; m.hidden=false; }
+
+async function load(){
+  try{
+    var url = SUPABASE_URL + "/rest/v1/prices?select=price_date,min_price,max_price,source,products(name_bn,category,unit)&order=price_date.desc&limit=1000";
+    var res = await fetch(url, { headers: { apikey: SUPABASE_KEY } });
+    if(!res.ok) throw new Error(res.status);
+    var data = await res.json();
+    if(!data.length){ $("date").textContent = ""; showMsg("এখনো কোনো দাম যোগ করা হয়নি।"); return; }
+
+    var dates = [];
+    data.forEach(function(r){ if(dates.indexOf(r.price_date) < 0) dates.push(r.price_date); });
+    var latest = dates[0], before = dates[1];
+    rows = data.filter(function(r){ return r.price_date === latest && r.products; });
+    data.forEach(function(r){
+      if(r.price_date === before && r.products) prev[r.products.name_bn] = (r.min_price + r.max_price) / 2;
+    });
+
+    var d = new Date(latest + "T00:00:00");
+    $("date").textContent = d.toLocaleDateString("bn-BD", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    $("warn").style.display = rows.some(function(r){ return r.source === "TEST"; }) ? "block" : "none";
+    $("foot").textContent = "সূত্র: " + (rows[0].source === "TEST" ? "পরীক্ষামূলক ডেটা" : rows[0].source) + ". দাম প্রতি এককের খুচরা পরিসর, টাকায়।";
+    buildChips();
+    render();
+  }catch(e){
+    $("date").textContent = "";
+    showMsg("দাম লোড করা যায়নি। ইন্টারনেট দেখে আবার চেষ্টা করুন।");
+  }
+}
+
+function buildChips(){
+  var cats = ["সব"];
+  rows.forEach(function(r){ if(cats.indexOf(r.products.category) < 0) cats.push(r.products.category); });
+  var box = $("chips"); box.textContent = "";
+  cats.forEach(function(c){
+    var b = document.createElement("button");
+    b.className = "chip"; b.type = "button"; b.textContent = c;
+    b.setAttribute("aria-pressed", c === cat);
+    b.onclick = function(){ cat = c; buildChips(); render(); };
+    box.appendChild(b);
+  });
+}
+
+function render(){
+  var term = $("q").value.trim();
+  var list = $("list"); list.textContent = "";
+  var shown = rows.filter(function(r){
+    return (cat === "সব" || r.products.category === cat) && r.products.name_bn.indexOf(term) > -1;
+  });
+  $("msg").hidden = shown.length > 0;
+  if(!shown.length){ $("msg").textContent = "কোনো পণ্য পাওয়া যায়নি।"; return; }
+
+  var groups = {};
+  shown.forEach(function(r){ (groups[r.products.category] = groups[r.products.category] || []).push(r); });
+  Object.keys(groups).forEach(function(c){
+    var h = document.createElement("div"); h.className = "cat"; h.textContent = c; list.appendChild(h);
+    var ul = document.createElement("ul");
+    groups[c].forEach(function(r){
+      var p = r.products, avg = (r.min_price + r.max_price) / 2, old = prev[p.name_bn];
+      var cls = "same", txt = "গতকালের মতো";
+      if(old !== undefined){
+        var diff = Math.round(avg - old);
+        if(diff > 0){ cls = "up"; txt = "▲ " + bn(diff) + " টাকা বেড়েছে"; }
+        else if(diff < 0){ cls = "down"; txt = "▼ " + bn(-diff) + " টাকা কমেছে"; }
+      } else { txt = ""; }
+      var li = document.createElement("li");
+      li.innerHTML = '<div><div class="name"></div><div class="unit"></div></div><div class="right"><div class="price"></div><div class="chg"></div></div>';
+      li.querySelector(".name").textContent = p.name_bn;
+      li.querySelector(".unit").textContent = "প্রতি " + p.unit;
+      li.querySelector(".price").textContent = "৳" + bn(r.min_price) + "–" + bn(r.max_price);
+      var ch = li.querySelector(".chg"); ch.textContent = txt; ch.className = "chg " + cls;
+      ul.appendChild(li);
+    });
+    list.appendChild(ul);
+  });
+}
+
+$("q").addEventListener("input", render);
+load();
+</script>
+</body>
+</html>
